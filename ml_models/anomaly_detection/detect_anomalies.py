@@ -300,10 +300,47 @@ def main():
     csv_path = "clean_data.csv"
     logger.info(f"Loading CSV file: {csv_path}")
 
-    df = pd.read_csv(csv_path)
+    # Optimized CSV reading for large files (900MB+)
+    # Specify data types to reduce memory usage
+    dtype_spec = {
+        'timestamp': str,  # Will convert to datetime later
+        'district': 'category',
+        'subdistrict': 'category',
+        'type': str,
+        'organization': 'category',
+        'state': 'category',
+    }
 
-    logger.info(f"Loaded dataset: {df.shape[0]} rows, {df.shape[1]} columns")
+    # Read with optimizations
+    logger.info("Reading CSV with memory optimizations...")
+    try:
+        # Try to read with chunking for very large files
+        import os
+        file_size_mb = os.path.getsize(csv_path) / (1024 * 1024)
+        logger.info(f"File size: {file_size_mb:.2f} MB")
+
+        if file_size_mb > 500:  # Use chunking for files > 500MB
+            logger.info("Large file detected, using chunked reading...")
+            chunks = []
+            chunk_size = 50000  # Process 50k rows at a time
+            for i, chunk in enumerate(pd.read_csv(csv_path, chunksize=chunk_size, dtype=dtype_spec, low_memory=False)):
+                chunks.append(chunk)
+                if (i + 1) % 10 == 0:
+                    logger.info(f"Processed {(i + 1) * chunk_size:,} rows...")
+            df = pd.concat(chunks, ignore_index=True)
+            del chunks  # Free memory
+            import gc
+            gc.collect()  # Force garbage collection
+        else:
+            # Read normally for smaller files
+            df = pd.read_csv(csv_path, dtype=dtype_spec, low_memory=False)
+    except Exception as e:
+        logger.warning(f"Optimized reading failed: {e}, falling back to basic read...")
+        df = pd.read_csv(csv_path, low_memory=False)
+
+    logger.info(f"Loaded dataset: {df.shape[0]:,} rows, {df.shape[1]} columns")
     logger.info(f"Columns: {list(df.columns)}")
+    logger.info(f"Memory usage: {df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
 
     # ------------------------------------------------------------------
     # BASIC CLEANING (recommended)
